@@ -19,7 +19,7 @@ public class CorsConfig {
                                 "http://127.0.0.1:8081",
                                 "http://localhost:8080",
                                 "http://127.0.0.1:8080",
-                                "https://sistemaautenticacionjava-borrar.onrender.com",
+                                "https://cultivo-inteligente.onrender.com/",
                                 "https://backend-sistemaautenticacionjava-borrar.onrender.com"
                         )
                         .allowedMethods(
