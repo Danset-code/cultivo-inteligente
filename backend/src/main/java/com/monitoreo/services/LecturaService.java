@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -79,16 +80,20 @@ public class LecturaService {
 
         validarUsuario(owner);
 
-        Sensor sensor = resolveSensor(r, owner, sourceDevice);
+        // La actividad depende de cuándo recibió el servidor el dato,
+        // no del reloj que tenga configurado el microcontrolador.
+        LocalDateTime fechaRecepcion = LocalDateTime.now(ZoneId.of("America/Bogota"));
+        Sensor sensor = resolveSensor(r, owner, sourceDevice, fechaRecepcion);
 
-        LocalDateTime fecha = r.getFecha() == null
-                ? LocalDateTime.now()
+        // Se conserva la fecha de medición enviada por el dispositivo para el historial.
+        LocalDateTime fechaMedicion = r.getFecha() == null
+                ? fechaRecepcion
                 : r.getFecha();
 
-        Lectura l = new Lectura(sensor, r.getValor(), fecha);
+        Lectura l = new Lectura(sensor, r.getValor(), fechaMedicion);
 
         sensor.setValorActual(r.getValor());
-        sensor.setUltimaLectura(fecha);
+        sensor.setUltimaLectura(fechaRecepcion);
         sensor.setEstado("ACTIVO");
 
         sensorRepository.save(sensor);
@@ -106,7 +111,8 @@ public class LecturaService {
     private Sensor resolveSensor(
             LecturaRequest r,
             Usuario owner,
-            Dispositivo sourceDevice) {
+            Dispositivo sourceDevice,
+            LocalDateTime fechaRecepcion) {
 
         if (sourceDevice != null) {
             String requested = trim(r.getDeviceId());
@@ -194,9 +200,7 @@ public class LecturaService {
         nuevo.setCanal(canal);
         nuevo.setUsuario(owner);
         nuevo.setEstado("ACTIVO");
-        nuevo.setUltimaLectura(
-                r.getFecha() == null ? LocalDateTime.now() : r.getFecha()
-        );
+        nuevo.setUltimaLectura(fechaRecepcion);
 
         return sensorRepository.save(nuevo);
     }
@@ -223,8 +227,10 @@ public class LecturaService {
         payload.put("tipo", s.getTipo());
         payload.put("unidad", s.getUnidad());
         payload.put("valor", lectura.getValor());
-        payload.put("fecha", lectura.getFecha());
-        payload.put("estado", s.getEstado());
+        // "fecha" se usa en tiempo real como hora de recepción para calcular actividad.
+        payload.put("fecha", s.getUltimaLectura());
+        payload.put("fechaMedicion", lectura.getFecha());
+        payload.put("estado", "ACTIVO");
 
         return payload;
     }

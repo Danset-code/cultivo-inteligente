@@ -892,212 +892,63 @@ function renderCharts() {
 function drawChart(g) {
     const canvas = document.getElementById(`chart-${g.id}`);
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     const rect = canvas.getBoundingClientRect();
-
-    if (rect.width <= 0 || rect.height <= 0) return;
-
     const dpr = window.devicePixelRatio || 1;
-
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0,0,w,h);
 
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const w = rect.width;
-    const h = rect.height;
-
-    ctx.clearRect(0, 0, w, h);
-
-    // Historial de lecturas del sensor.
     const history = state.chartHistory[g.sensor.id] || [];
+    const values = history.length ? history.map(x => Number(x.value)) : [Number(g.sensor.valorActual)];
+    const min = Math.min(...values), max = Math.max(...values);
+    const pad = (max - min || 1) * .15;
+    const lo = min - pad, hi = max + pad;
 
-    const values = (
-        history.length
-            ? history.map(x => Number(x.value))
-            : [Number(g.sensor.valorActual)]
-    ).filter(Number.isFinite);
-
-    if (!values.length) return;
-
-    // Obtener los rangos configurados para este tipo de sensor.
-    const range = getRangeForSensorType(g.sensor.tipo);
-
-    const minValue = Math.min(...values);
-    const maxValue = Math.max(...values);
-
-    // La escala debe incluir tanto las lecturas como los límites.
-    const domainMin = range
-        ? Math.min(minValue, range.minimo)
-        : minValue;
-
-    const domainMax = range
-        ? Math.max(maxValue, range.maximo)
-        : maxValue;
-
-    const padding = (domainMax - domainMin || 1) * 0.08;
-
-    const lo = domainMin - padding;
-    const hi = domainMax + padding;
-
-    const plotLeft = 45;
-    const plotRight = w - 15;
-    const plotTop = 25;
-    const plotBottom = h - 30;
-
-    const yForValue = value =>
-        plotBottom -
-        ((value - lo) / (hi - lo)) *
-        (plotBottom - plotTop);
-
-    // Cuadrícula del gráfico.
     ctx.strokeStyle = "#d5d9df";
     ctx.lineWidth = 1;
-    ctx.setLineDash([]);
-
-    for (let i = 0; i < 5; i++) {
-        const y = plotTop +
-            i * (plotBottom - plotTop) / 4;
-
-        ctx.beginPath();
-        ctx.moveTo(plotLeft, y);
-        ctx.lineTo(plotRight, y);
-        ctx.stroke();
+    for (let i=0;i<5;i++) {
+        const y = 20 + i*(h-45)/4;
+        ctx.beginPath(); ctx.moveTo(45,y); ctx.lineTo(w-15,y); ctx.stroke();
     }
 
-    // Valores de la escala vertical.
     ctx.fillStyle = "#4b5563";
     ctx.font = "12px Arial";
+    ctx.fillText(hi.toFixed(1), 5, 23);
+    ctx.fillText(lo.toFixed(1), 5, h-25);
 
-    ctx.fillText(hi.toFixed(1), 5, plotTop);
-    ctx.fillText(lo.toFixed(1), 5, plotBottom);
-
-    // Dibujar los datos del sensor.
     if (g.tipo === "BARRAS") {
-        const bw = Math.max(
-            4,
-            (w - 70) / values.length - 5
-        );
-
-        values.forEach((v, i) => {
-            const x = 50 + i * (bw + 5);
-            const y = yForValue(v);
-
+        const bw = Math.max(4, (w-70)/values.length - 5);
+        values.forEach((v,i) => {
+            const x = 50 + i*(bw+5);
+            const y = h-30 - ((v-lo)/(hi-lo))*(h-55);
             ctx.fillStyle = "#08b737";
-            ctx.fillRect(
-                x,
-                y,
-                bw,
-                plotBottom - y
-            );
+            ctx.fillRect(x,y,bw,h-30-y);
         });
     } else {
-        ctx.beginPath();
-
-        values.forEach((v, i) => {
-            const x = 50 +
-                i * ((w - 70) / Math.max(1, values.length - 1));
-            const y = yForValue(v);
-
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
-            }
-        });
-
-        if (g.tipo === "AREA") {
-            ctx.lineTo(w - 20, plotBottom);
-            ctx.lineTo(50, plotBottom);
-            ctx.closePath();
-
-            ctx.fillStyle = "rgba(8,183,55,0.15)";
-            ctx.fill();
-        }
-
-        // Línea del historial.
-        ctx.beginPath();
-
-        values.forEach((v, i) => {
-            const x = 50 +
-                i * ((w - 70) / Math.max(1, values.length - 1));
-            const y = yForValue(v);
-
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
-            }
-        });
-
         ctx.strokeStyle = "#08b737";
         ctx.lineWidth = 3;
-        ctx.stroke();
-    }
-
-    // Dibujar los límites por encima de los datos.
-    function drawLimitLine(value, color, label) {
-        if (!Number.isFinite(Number(value))) return;
-
-        const y = yForValue(Number(value));
-
-        ctx.save();
-
-        // Línea horizontal discontinua.
         ctx.beginPath();
-        ctx.moveTo(plotLeft, y);
-        ctx.lineTo(plotRight, y);
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([7, 4]);
+        values.forEach((v,i) => {
+            const x = 50 + i*((w-70)/Math.max(1,values.length-1));
+            const y = h-30 - ((v-lo)/(hi-lo))*(h-55);
+            if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        });
         ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Etiqueta del límite con su valor.
-        const text = `${label}: ${value}`;
-        ctx.font = "bold 11px Arial";
-
-        const textWidth = ctx.measureText(text).width;
-        const labelX = Math.max(
-            plotLeft + 3,
-            plotRight - textWidth - 10
-        );
-
-        const labelY = Math.max(
-            plotTop + 12,
-            Math.min(y - 4, plotBottom - 3)
-        );
-
-        ctx.fillStyle = "rgba(255,255,255,0.92)";
-        ctx.fillRect(
-            labelX - 3,
-            labelY - 11,
-            textWidth + 6,
-            14
-        );
-
-        ctx.fillStyle = color;
-        ctx.fillText(text, labelX, labelY);
-
-        ctx.restore();
+        if (g.tipo === "AREA") {
+            ctx.lineTo(w-20,h-30);
+            ctx.lineTo(50,h-30);
+            ctx.closePath();
+            ctx.fillStyle = "rgba(8,183,55,.15)";
+            ctx.fill();
+        }
     }
 
-    if (range) {
-        drawLimitLine(range.maximo, "#dc2626", "Máximo");
-        drawLimitLine(range.minimo, "#2563eb", "Mínimo");
-    }
-
-    // Valor actual del sensor.
     ctx.fillStyle = "#111";
     ctx.font = "13px Arial";
-
-    ctx.fillText(
-        `${g.sensor.tipo}: ${Number(g.sensor.valorActual).toFixed(1)} ${g.sensor.unidad || ""}`,
-        55,
-        h - 7
-    );
+    ctx.fillText(`${g.sensor.tipo}: ${Number(g.sensor.valorActual).toFixed(1)} ${g.sensor.unidad}`, 55, h-7);
 }
 
 function findSensorDefinition(typeOrName) {
@@ -1965,10 +1816,23 @@ function updateSensorFromWebSocket(msg) {
         return;
     }
 
-    /*
-     * Actualizamos información del sensor.
-     */
-    if (msg.estado) {
+    // WebSocket puede entregar un evento de estado retrasado mientras llega
+    // otra lectura. No permitimos que un evento viejo sobrescriba información nueva.
+    const fechaEntrante = msg.fecha ? Date.parse(msg.fecha) : NaN;
+    const fechaActual = sensor.ultimaLectura ? Date.parse(sensor.ultimaLectura) : NaN;
+    const mensajeAntiguo = Number.isFinite(fechaEntrante)
+        && Number.isFinite(fechaActual)
+        && fechaEntrante < fechaActual;
+
+    if (mensajeAntiguo) {
+        return;
+    }
+
+    // Toda lectura aceptada por el backend confirma actividad. Solo los eventos
+    // ESTADO_SENSOR pueden declarar INACTIVO, y deben corresponder a la última lectura.
+    if (msg.event === "LECTURA") {
+        sensor.estado = "ACTIVO";
+    } else if (msg.estado) {
         sensor.estado = msg.estado;
     }
 

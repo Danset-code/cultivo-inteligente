@@ -28,7 +28,7 @@ header h1{margin:0;font-size:22px}header small{color:var(--muted)}
       <div class="toolbar"><button class="primary" id="loginBtn">Iniciar sesión en el simulador</button><span id="loginStatus" class="hint">Debes autenticarte para acceder a los datos de tu cuenta.</span></div>
       <h2>Configuración</h2>
       <div class="field"><label>Token de vinculación de la cuenta</label><input id="userDeviceToken" type="password" placeholder="Genera el token en Configuración del sistema" autocomplete="off"></div>
-      <div class="toolbar"><button class="secondary" id="loadTokenBtn">Cargar / usar token</button></div><p class="hint">Si pegas aquí un token, pulsa el botón para conservarlo y usarlo. Si el campo está vacío, el simulador intentará consultar el token de la cuenta después de iniciar sesión.</p>
+      <div class="toolbar"><button class="secondary" id="loadTokenBtn">Cargar token de mi cuenta</button></div>
       <div class="field"><label>API del backend</label><input id="apiUrl" value="https://backend-sistemaautenticacionjava-borrar.onrender.com/api"></div>
       <div class="field"><label>WebSocket</label><input id="wsUrl" value="wss://backend-sistemaautenticacionjava-borrar.onrender.com/ws/sensores"></div>
       <div class="row">
@@ -206,31 +206,13 @@ async function loadDevices(){
   }catch(e){log('ERROR cargando dispositivos: '+e.message);}
 }
 async function loadAccountToken(){
-  const input=$('userDeviceToken');
-  const typedToken=input.value.trim();
-
-  // Si el usuario ya pegó el token desde Configuración, no hagas una petición GET
-  // que pueda sobrescribirlo o fallar porque el backend desplegado sea antiguo.
-  if(typedToken){
-    log('Token introducido manualmente conservado. Se comprobará al vincular el dispositivo.');
-    return;
-  }
-  if(!accessToken){
-    log('Inicia sesión antes de consultar el token guardado de la cuenta. También puedes pegarlo manualmente.');
-    return;
-  }
+  if(!accessToken)return;
   try{
     const data=await request('/configuracion/token-dispositivo');
-    if(data.token){
-      input.value=data.token;
-      log('Token de vinculación cargado desde la cuenta autenticada.');
-    }else{
-      log('Esta cuenta todavía no tiene token. Genéralo en Configuración del sistema y pégalo aquí.');
-    }
-  }catch(e){
-    // No vaciar el campo ni impedir que se pegue un token generado en la web principal.
-    log('No se pudo consultar el token guardado: '+e.message+'. Si ya generaste el token en la web principal, pégalo en el campo y vuelve a pulsar el botón; luego vincula el dispositivo. Si el error continúa al iniciar sesión con el campo vacío, despliega la versión actualizada del backend.');
-  }
+    $('userDeviceToken').value=data.token||'';
+    if(!data.token)log('No hay token de cuenta todavía. Genéralo desde Configuración en el sistema principal.');
+    else log('Token de vinculación cargado para la cuenta autenticada.');
+  }catch(e){log('ERROR cargando token: '+e.message);}
 }
 async function loadRanges(){
   if(!accessToken)return;
@@ -311,7 +293,20 @@ function connectWs(){
     ws.onopen=()=>{$('wsDot').className='dot ok';$('wsText').textContent='WebSocket conectado';log('WebSocket conectado al backend');};
     ws.onclose=()=>{$('wsDot').className='dot bad';$('wsText').textContent='WebSocket desconectado';if(accessToken)setTimeout(connectWs,2500);};
     ws.onerror=()=>{$('wsDot').className='dot bad';$('wsText').textContent='Error WebSocket';};
-    ws.onmessage=e=>{try{const m=JSON.parse(e.data);const s=sensors.find(x=>x.id==m.sensorId);if(s){if(m.valor!==undefined)s.valorActual=Number(m.valor);if(m.fecha)s.ultimaLectura=m.fecha;if(m.estado)s.estado=m.estado;render();}}catch{}};
+    ws.onmessage=e=>{try{
+      const m=JSON.parse(e.data);
+      const s=sensors.find(x=>x.id==m.sensorId || (m.deviceId && m.canal && x.deviceId===m.deviceId && String(x.canal)===String(m.canal)));
+      if(!s)return;
+      const incomingAt=m.fecha?Date.parse(m.fecha):NaN;
+      const currentAt=s.ultimaLectura?Date.parse(s.ultimaLectura):NaN;
+      // Ignora estados retrasados respecto de una lectura recibida posteriormente.
+      if(Number.isFinite(incomingAt)&&Number.isFinite(currentAt)&&incomingAt<currentAt)return;
+      if(m.event==='LECTURA')s.estado='ACTIVO';
+      else if(m.estado)s.estado=m.estado;
+      if(m.valor!==undefined)s.valorActual=Number(m.valor);
+      if(m.fecha)s.ultimaLectura=m.fecha;
+      render();
+    }catch{}};
   }catch{setTimeout(connectWs,2500);}
 }
 $('sensorType').addEventListener('change',updateUnit);
