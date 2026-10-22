@@ -275,10 +275,6 @@ function showLoginTab(mode) {
                     ¿Olvidaste tu contraseña?
                 </a>
             </p>
-
-            <p class="muted" style="margin-top:18px">
-                Prueba: admin@monitoreo.com / Admin123
-            </p>
         `;
     } else {
         form.innerHTML = `
