@@ -9,6 +9,7 @@ public interface DispositivoRepository extends JpaRepository<Dispositivo, Long> 
     Optional<Dispositivo> findByHardwareId(String hardwareId);
     Optional<Dispositivo> findByCodigoVinculacion(String codigoVinculacion);
     Optional<Dispositivo> findByApiKey(String apiKey);
+    Optional<Dispositivo> findByIdAndUsuario_Id(Long id, Long usuarioId);
     List<Dispositivo> findByUsuario_IdOrderByIdAsc(Long usuarioId);
     boolean existsByUsuario_IdAndAlias(Long usuarioId, String alias);
     boolean existsByHardwareId(String hardwareId);

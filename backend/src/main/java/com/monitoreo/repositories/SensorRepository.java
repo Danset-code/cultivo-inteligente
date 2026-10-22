@@ -9,6 +9,7 @@ public interface SensorRepository extends JpaRepository<Sensor, Long> {
     Optional<Sensor> findByDeviceIdAndCanal(String deviceId, String canal);
     boolean existsByDeviceIdAndCanal(String deviceId, String canal);
     List<Sensor> findAllByUsuario_IdOrderByIdAsc(Long usuarioId);
+    List<Sensor> findAllByDeviceIdAndUsuario_IdOrderByIdAsc(String deviceId, Long usuarioId);
     List<Sensor> findByUsuarioIsNull();
     Optional<Sensor> findByIdAndUsuario_Id(Long id, Long usuarioId);
     Optional<Sensor> findByDeviceIdAndCanalAndUsuario_Id(String deviceId, String canal, Long usuarioId);

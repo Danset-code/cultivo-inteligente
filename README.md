@@ -119,3 +119,11 @@ Las operaciones privadas desde Postman también deben incluir `Authorization: Be
 3. Crea un dispositivo, sensor, gráfico y lectura con la segunda cuenta.
 4. Cierra sesión y entra como administrador. Los datos creados por la segunda cuenta no deben aparecer en sensores, dashboard, reportes ni mensajes WebSocket.
 5. Recarga la URL en una sesión activa. Debe solicitar de nuevo las credenciales.
+
+
+## Configuración de dispositivos y rangos
+
+- La sección **Configuración** genera un token de cuenta aleatorio de 256 bits (64 caracteres hexadecimales), con unicidad en base de datos, para dar de alta varias placas sin compartir correo ni contraseña. Cada placa recibe después su propia `deviceKey` para `X-Device-Key`.
+- Los rangos mínimos/máximos están guardados por usuario y por tipo de sensor. La sección Configuración usa el catálogo del simulador. En el Dashboard, las tarjetas de gráficos se resaltan en rojo claro cuando el valor actual supera el máximo y en azul claro cuando cae por debajo del mínimo.
+- La sección **Dispositivos** permite eliminar un dispositivo propio y sus sensores, gráficos e historial asociados.
+- La base de datos se actualiza mediante Hibernate (`spring.jpa.hibernate.ddl-auto=update`) y añadirá `usuarios.token_dispositivo` y la tabla `rangos_sensor` en el arranque del backend.

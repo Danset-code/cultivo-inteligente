@@ -9,6 +9,7 @@ import com.monitoreo.repositories.DispositivoRepository;
 import com.monitoreo.repositories.GraficoRepository;
 import com.monitoreo.repositories.LecturaRepository;
 import com.monitoreo.repositories.PasswordResetTokenRepository;
+import com.monitoreo.repositories.RangoSensorRepository;
 import com.monitoreo.repositories.SensorRepository;
 import com.monitoreo.repositories.UsuarioRepository;
 import com.monitoreo.repositories.UsuarioSesionRepository;
@@ -29,17 +30,20 @@ public class AuthService {
     private final LecturaRepository lecturaRepository;
     private final DispositivoRepository dispositivoRepository;
     private final UsuarioSesionRepository sesionRepository;
+    private final RangoSensorRepository rangoSensorRepository;
 
     public AuthService(UsuarioRepository usuarioRepository, PasswordEncoder passwordEncoder,
                        PasswordResetTokenRepository passwordResetTokenRepository,
                        UsuarioSesionService sesiones, SensorRepository sensorRepository,
                        GraficoRepository graficoRepository, LecturaRepository lecturaRepository,
-                       DispositivoRepository dispositivoRepository, UsuarioSesionRepository sesionRepository) {
+                       DispositivoRepository dispositivoRepository, UsuarioSesionRepository sesionRepository,
+                       RangoSensorRepository rangoSensorRepository) {
         this.usuarioRepository=usuarioRepository; this.passwordEncoder=passwordEncoder;
         this.passwordResetTokenRepository=passwordResetTokenRepository; this.sesiones=sesiones;
         this.sensorRepository=sensorRepository; this.graficoRepository=graficoRepository;
         this.lecturaRepository=lecturaRepository; this.dispositivoRepository=dispositivoRepository;
         this.sesionRepository=sesionRepository;
+        this.rangoSensorRepository=rangoSensorRepository;
     }
 
     public AuthResponse registrar(RegisterRequest request) {
@@ -82,6 +86,7 @@ public class AuthService {
         sensorRepository.deleteAll(sensores);
         dispositivoRepository.deleteByUsuario_Id(usuario.getId());
         sesionRepository.deleteByUsuario_Id(usuario.getId());
+        rangoSensorRepository.deleteByUsuario_Id(usuario.getId());
         passwordResetTokenRepository.deleteByUsuario(usuario);
         usuarioRepository.delete(usuario);
     }

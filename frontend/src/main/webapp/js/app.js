@@ -16,7 +16,7 @@ const WS_URL = isLocal
 
 const SENSOR_CATALOG = [
     // Ambiente
-    { id: "temperatura-aire", nombre: "Temperatura", unidad: "°C" },
+    { id: "temperatura-aire", nombre: "Temperatura del aire", unidad: "°C" },
     { id: "humedad-aire", nombre: "Humedad relativa", unidad: "%RH" },
     { id: "co2", nombre: "CO₂", unidad: "ppm" },
     { id: "presion-atmosferica", nombre: "Presión atmosférica", unidad: "hPa" },
@@ -47,6 +47,34 @@ const SENSOR_CATALOG = [
     { id: "caudal", nombre: "Caudal de riego", unidad: "L/min" },
     { id: "presion-riego", nombre: "Presión de riego", unidad: "bar" },
     { id: "nitratos", nombre: "Nitratos (NO₃⁻)", unidad: "mg/L" },
+ ];
+
+// Mismos nombres de tipo y rangos base que utiliza simulador.html.
+// Estos límites son predeterminados; el usuario puede modificarlos en Configuración.
+const RANGE_SENSOR_CATALOG = [
+    { id: "temperatura-aire", nombre: "Temperatura del aire", unidad: "°C", minimo: 20, maximo: 32 },
+    { id: "humedad-aire", nombre: "Humedad relativa", unidad: "%RH", minimo: 55, maximo: 85 },
+    { id: "co2", nombre: "CO₂", unidad: "ppm", minimo: 380, maximo: 520 },
+    { id: "presion-atmosferica", nombre: "Presión atmosférica", unidad: "hPa", minimo: 990, maximo: 1030 },
+    { id: "par", nombre: "Radiación PAR", unidad: "µmol/m²/s", minimo: 300, maximo: 1000 },
+    { id: "radiacion-solar", nombre: "Radiación solar", unidad: "W/m²", minimo: 200, maximo: 1000 },
+    { id: "uv", nombre: "Índice UV", unidad: "UV Index", minimo: 0, maximo: 11 },
+    { id: "temperatura-hoja", nombre: "Temperatura de hoja", unidad: "°C", minimo: 20, maximo: 32 },
+    { id: "humedad-foliar", nombre: "Humedad foliar", unidad: "%", minimo: 50, maximo: 90 },
+    { id: "humedad-sustrato", nombre: "Humedad del sustrato", unidad: "%VWC", minimo: 35, maximo: 75 },
+    { id: "temperatura-sustrato", nombre: "Temperatura del sustrato", unidad: "°C", minimo: 18, maximo: 28 },
+    { id: "ph-sustrato", nombre: "pH del sustrato", unidad: "pH", minimo: 5.5, maximo: 7.5 },
+    { id: "ec-sustrato", nombre: "Conductividad eléctrica del sustrato", unidad: "mS/cm", minimo: 0.5, maximo: 3 },
+    { id: "temperatura-agua", nombre: "Temperatura del agua", unidad: "°C", minimo: 18, maximo: 28 },
+    { id: "ph-agua", nombre: "pH del agua", unidad: "pH", minimo: 5.5, maximo: 7.5 },
+    { id: "ec-agua", nombre: "Conductividad eléctrica del agua", unidad: "mS/cm", minimo: 0.2, maximo: 2.5 },
+    { id: "oxigeno-disuelto", nombre: "Oxígeno disuelto", unidad: "mg/L", minimo: 5, maximo: 10 },
+    { id: "orp", nombre: "Potencial ORP", unidad: "mV", minimo: 100, maximo: 500 },
+    { id: "salinidad", nombre: "Salinidad", unidad: "ppt", minimo: 0, maximo: 5 },
+    { id: "nivel-agua", nombre: "Nivel de agua", unidad: "%", minimo: 20, maximo: 100 },
+    { id: "caudal", nombre: "Caudal de riego", unidad: "L/min", minimo: 1, maximo: 20 },
+    { id: "presion-riego", nombre: "Presión de riego", unidad: "bar", minimo: 1, maximo: 5 },
+    { id: "nitratos", nombre: "Nitratos (NO₃⁻)", unidad: "mg/L", minimo: 5, maximo: 150 }
 ];
 
 let accessToken = null;
@@ -57,6 +85,8 @@ const state = {
     devices: [],
     dashboardDeviceId: "",
     pairingCode: null,
+    deviceToken: "",
+    ranges: [],
     sensors: [],
     charts: [],
     readings: [],
@@ -86,6 +116,8 @@ async function api(path, options = {}) {
         state.user = null;
         state.devices = [];
         state.dashboardDeviceId = "";
+        state.deviceToken = "";
+        state.ranges = [];
         state.sensors = [];
         state.charts = [];
         state.readings = [];
@@ -116,6 +148,7 @@ function render() {
                     <button class="${state.page === "sensores" ? "active" : ""}" onclick="navigate('sensores')">Sensores</button>
                     <button class="${state.page === "dispositivos" ? "active" : ""}" onclick="navigate('dispositivos')">Dispositivos</button>
                     <button class="${state.page === "reportes" ? "active" : ""}" onclick="navigate('reportes')">Reportes</button>
+                    <button class="${state.page === "configuracion" ? "active" : ""}" onclick="navigate('configuracion')">Configuración</button>
                 </nav>
                 <div style="padding:20px;font-size:14px;">
                     <span class="ws-dot ${state.wsConnected ? "ok" : ""}"></span>
@@ -133,6 +166,7 @@ function render() {
     if (state.page === "sensores") renderSensors();
     if (state.page === "dispositivos") renderDevices();
     if (state.page === "reportes") renderReports();
+    if (state.page === "configuracion") renderSettings();
 }
 
 function renderLogin() {
@@ -273,9 +307,12 @@ async function login(event) {
         if (!accessToken) throw new Error("El backend no devolvió el token de sesión.");
         state.user = data;
         state.dashboardDeviceId = "";
+        state.deviceToken = "";
+        state.ranges = [];
         state.page = "dashboard";
         await loadData();
         await loadDevices();
+        await loadSettings();
         connectWebSocket();
         render();
     } catch (e) {
@@ -430,6 +467,9 @@ async function deleteUserAccount() {
         accessToken = null;
         state.user = null;
         state.devices = [];
+        state.deviceToken = "";
+        state.ranges = [];
+        state.dashboardDeviceId = "";
         state.sensors = [];
         state.charts = [];
         state.readings = [];
@@ -461,6 +501,8 @@ async function logout() {
     state.user = null;
     state.devices = [];
     state.dashboardDeviceId = "";
+    state.deviceToken = "";
+    state.ranges = [];
     state.sensors = [];
     state.charts = [];
     state.readings = [];
@@ -474,6 +516,7 @@ function navigate(page) {
     render();
     if (page === "dashboard") renderCharts();
     if (page === "dispositivos" && state.user) loadDevices().then(renderDevices);
+    if (page === "configuracion" && state.user) loadSettings().then(() => { if (state.page === "configuracion") renderSettings(); });
 }
 
 async function loadData() {
@@ -481,6 +524,7 @@ async function loadData() {
         state.sensors = await api("/sensores");
         state.charts = await api("/graficos?activos=true");
         state.readings = await api("/lecturas");
+        state.chartHistory = {};
         seedHistory();
     } catch (e) {
         console.error(e);
@@ -517,15 +561,31 @@ async function loadDevices() {
 
 function renderDevices() {
     const main = document.getElementById("main-content");
-    const paired = state.devices.filter(d => d.hardwareId);
     main.innerHTML = `
-      <div class="topbar"><h1>Dispositivos físicos</h1><button class="btn btn-primary" onclick="createPairingCode()">Vincular dispositivo</button></div>
+      <div class="topbar"><h1>Dispositivos físicos</h1><button class="btn btn-primary" onclick="navigate('configuracion')">Configurar token</button></div>
       <p class="muted" style="margin-bottom:18px;">El nombre device1, device2… se asigna automáticamente. No escribas un nombre de placa ni un ID manualmente: el microcontrolador envía su identificador de hardware.</p>
-      <div class="card table-card"><table><thead><tr><th>Nombre asignado</th><th>Identificador detectado</th><th>Vinculación</th></tr></thead><tbody>
-      ${state.devices.map(d => `<tr><td><strong>${escapeHtml(d.alias)}</strong></td><td>${escapeHtml(d.hardwareId || "Se asignará al conectar el equipo")}</td><td>${escapeHtml(d.estadoVinculacion)}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">Todavía no has vinculado dispositivos.</td></tr>`}
+      <div class="card table-card"><table><thead><tr><th>Nombre asignado</th><th>Identificador detectado</th><th>Vinculación</th><th>Acciones</th></tr></thead><tbody>
+      ${state.devices.map(d => `<tr><td><strong>${escapeHtml(d.alias)}</strong></td><td>${escapeHtml(d.hardwareId || "Se asignará al conectar el equipo")}</td><td>${escapeHtml(d.estadoVinculacion)}</td><td><button class="btn btn-danger" onclick="deleteDevice(${d.id})">Eliminar</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">Todavía no has vinculado dispositivos.</td></tr>`}
       </tbody></table></div>
-      ${state.pairingCode ? `<div class="card" style="margin-top:16px;"><h3>Código para ${escapeHtml(state.pairingCode.alias)}</h3><p>Introduce este código de un solo uso en la configuración inicial del firmware. La placa enviará su identificador real automáticamente y recibirá una clave de dispositivo.</p><div style="font-size:18px;font-weight:700;word-break:break-all;margin:12px 0;">${escapeHtml(state.pairingCode.pairingCode)}</div><div class="toolbar"><button class="btn btn-secondary" onclick="copyPairingCode()">Copiar código</button><button class="btn btn-secondary" onclick="statePairingDismiss()">Ocultar código</button></div><p class="muted">${escapeHtml(state.pairingCode.instrucciones || "Código de un solo uso. No lo compartas.")}</p></div>` : ""}
-      <div class="card" style="margin-top:16px;"><strong>¿Cómo funciona?</strong><p>1. Genera un código desde esta pantalla. 2. Configúralo en el dispositivo. 3. El dispositivo detecta/envía su hardwareId y canjea el código en <code>/api/dispositivos/vincular</code>. 4. Guarda de forma privada el <code>deviceKey</code> devuelto y úsalo en cada lectura mediante el encabezado <code>X-Device-Key</code>.</p></div>`;
+      ${state.pairingCode ? `<div class="card" style="margin-top:16px;"><h3>Código para ${escapeHtml(state.pairingCode.alias)}</h3><p>Este código legacy es de un solo uso. Para vincular varios dispositivos con un único token de cuenta, entra a Configuración y genera el token de vinculación.</p><div style="font-size:18px;font-weight:700;word-break:break-all;margin:12px 0;">${escapeHtml(state.pairingCode.pairingCode)}</div><div class="toolbar"><button class="btn btn-secondary" onclick="copyPairingCode()">Copiar código</button><button class="btn btn-secondary" onclick="statePairingDismiss()">Ocultar código</button></div><p class="muted">${escapeHtml(state.pairingCode.instrucciones || "Código de un solo uso. No lo compartas.")}</p></div>` : ""}
+      <div class="card" style="margin-top:16px;"><strong>¿Cómo funciona?</strong><p>1. Genera el token de cuenta desde Configuración. 2. El dispositivo envía una sola vez su hardwareId y ese token a <code>/api/dispositivos/vincular</code>. 3. El backend devuelve una clave privada específica para esa placa. 4. El microcontrolador guarda esa clave y la usa como <code>X-Device-Key</code> en cada lectura, sin enviar usuario ni contraseña.</p></div>`;
+}
+
+async function deleteDevice(id) {
+    const device = state.devices.find(d => Number(d.id) === Number(id));
+    if (!device) return;
+    const accepted = confirm(`¿Eliminar ${device.alias}? También se eliminarán sus sensores, gráficos e historial de lecturas. Esta acción no se puede deshacer.`);
+    if (!accepted) return;
+    try {
+        await api(`/dispositivos/${id}`, { method: "DELETE" });
+        if (state.dashboardDeviceId && state.dashboardDeviceId === device.hardwareId) state.dashboardDeviceId = "";
+        await loadDevices();
+        await loadData();
+        render();
+        alert(`El dispositivo ${device.alias} fue eliminado.`);
+    } catch (e) {
+        alert(e.message || "No se pudo eliminar el dispositivo.");
+    }
 }
 
 async function createPairingCode() {
@@ -543,6 +603,109 @@ async function copyPairingCode() {
 }
 function statePairingDismiss() { state.pairingCode = null; renderDevices(); }
 
+async function loadSettings() {
+    try {
+        const [tokenData, ranges] = await Promise.all([
+            api("/configuracion/token-dispositivo"),
+            api("/configuracion/rangos")
+        ]);
+        state.deviceToken = tokenData.token || "";
+        state.ranges = Array.isArray(ranges) ? ranges : [];
+    } catch (e) {
+        console.error("No se pudo cargar la configuración:", e);
+        alert(e.message || "No se pudo cargar la configuración del usuario.");
+    }
+}
+
+function renderSettings() {
+    const main = document.getElementById("main-content");
+    if (!main) return;
+    main.innerHTML = `
+      <div class="topbar"><h1>Configuración</h1></div>
+      <section class="card settings-section">
+        <h2>Token para vincular dispositivos</h2>
+        <p class="muted">Este token pertenece a tu cuenta y sirve para dar de alta varios dispositivos sin enviar correo ni contraseña al microcontrolador. Al vincular cada placa, el backend le entrega una clave privada diferente (<code>X-Device-Key</code>) que debe guardar y usar para cada lectura.</p>
+        <div class="form-row"><label for="account-device-token">Token de vinculación de la cuenta</label><input id="account-device-token" class="form-control token-field" type="text" value="${escapeHtml(state.deviceToken)}" readonly placeholder="Todavía no has generado un token"></div>
+        <div class="toolbar"><button class="btn btn-primary" onclick="generateDeviceToken()">${state.deviceToken ? "Generar un token nuevo" : "Generar token"}</button><button class="btn btn-secondary" onclick="copyDeviceToken()" ${state.deviceToken ? "" : "disabled"}>Copiar token</button></div>
+        <p class="muted">El token tiene 256 bits aleatorios (64 caracteres hexadecimales) y una restricción UNIQUE en la base de datos. Al regenerarlo, el token anterior deja de servir para nuevas vinculaciones. Los dispositivos que ya están vinculados conservan su clave privada actual.</p>
+      </section>
+      <section class="card settings-section">
+        <div class="settings-header"><div><h2>Rangos generales por tipo de sensor</h2><p class="muted">Cada rango se aplica a todos los sensores de ese tipo, no a un sensor individual. Si un valor supera el máximo, la tarjeta del gráfico se resaltará en rojo claro; si baja del mínimo, se resaltará en azul claro. Los colores de las líneas/barras no se modifican.</p></div><button class="btn btn-primary" onclick="saveSensorRanges()">Guardar rangos</button></div>
+        <div class="table-card range-table-wrap"><table class="range-table"><thead><tr><th>Tipo de sensor</th><th>Unidad</th><th>Desde (mínimo)</th><th>Hasta (máximo)</th></tr></thead><tbody>
+          ${RANGE_SENSOR_CATALOG.map(sensor => {
+              const saved = state.ranges.find(r => canonicalSensorType(r.tipo) === canonicalSensorType(sensor.nombre));
+              const min = saved ? saved.minimo : sensor.minimo;
+              const max = saved ? saved.maximo : sensor.maximo;
+              return `<tr><td><strong>${escapeHtml(sensor.nombre)}</strong></td><td>${escapeHtml(sensor.unidad)}</td><td><input class="form-control range-input" type="number" step="any" id="range-min-${sensor.id}" value="${escapeHtml(min)}" aria-label="Mínimo de ${escapeHtml(sensor.nombre)}"></td><td><input class="form-control range-input" type="number" step="any" id="range-max-${sensor.id}" value="${escapeHtml(max)}" aria-label="Máximo de ${escapeHtml(sensor.nombre)}"></td></tr>`;
+          }).join("")}
+        </tbody></table></div>
+        <div class="toolbar" style="margin-top:16px"><button class="btn btn-primary" onclick="saveSensorRanges()">Guardar rangos</button><button class="btn btn-secondary" onclick="resetDefaultRanges()">Cargar valores predeterminados</button></div>
+        <p class="muted">Los valores predeterminados iniciales provienen del simulador. Los cambios se guardan por usuario en la base de datos y también pueden ser consultados por el simulador.</p>
+      </section>`;
+}
+
+async function generateDeviceToken() {
+    if (state.deviceToken && !confirm("¿Generar un token nuevo? El token anterior dejará de permitir nuevas vinculaciones. Los dispositivos ya vinculados seguirán enviando datos con su clave individual.")) return;
+    try {
+        const result = await api("/configuracion/token-dispositivo/generar", { method: "POST" });
+        state.deviceToken = result.token || "";
+        renderSettings();
+        alert("Token generado correctamente. Cópialo y guárdalo en un lugar seguro para configurar nuevos dispositivos.");
+    } catch (e) {
+        alert(e.message || "No se pudo generar el token.");
+    }
+}
+
+async function copyDeviceToken() {
+    if (!state.deviceToken) return;
+    try {
+        await navigator.clipboard.writeText(state.deviceToken);
+        alert("Token copiado al portapapeles.");
+    } catch {
+        alert("No se pudo copiar automáticamente. Selecciona el token y cópialo manualmente.");
+    }
+}
+
+async function saveSensorRanges() {
+    const payload = [];
+    for (const sensor of RANGE_SENSOR_CATALOG) {
+        const minText = document.getElementById(`range-min-${sensor.id}`)?.value.trim() ?? "";
+        const maxText = document.getElementById(`range-max-${sensor.id}`)?.value.trim() ?? "";
+        if (!minText || !maxText) {
+            alert(`Completa los dos límites de ${sensor.nombre}. Los rangos son generales para cada tipo de sensor.`);
+            return;
+        }
+        const minimo = Number(minText);
+        const maximo = Number(maxText);
+        if (!Number.isFinite(minimo) || !Number.isFinite(maximo) || minimo > maximo) {
+            alert(`El rango de ${sensor.nombre} debe contener números válidos y el mínimo no puede superar el máximo.`);
+            return;
+        }
+        payload.push({ tipo: sensor.nombre, minimo, maximo });
+    }
+    try {
+        state.ranges = await api("/configuracion/rangos", {
+            method: "PUT",
+            body: JSON.stringify(payload)
+        });
+        renderSettings();
+        if (state.page === "dashboard") renderCharts();
+        alert("Rangos guardados. Se aplican a todos los sensores del mismo tipo de tu cuenta.");
+    } catch (e) {
+        alert(e.message || "No se pudieron guardar los rangos.");
+    }
+}
+
+async function resetDefaultRanges() {
+    for (const sensor of RANGE_SENSOR_CATALOG) {
+        const minInput = document.getElementById(`range-min-${sensor.id}`);
+        const maxInput = document.getElementById(`range-max-${sensor.id}`);
+        if (minInput) minInput.value = sensor.minimo;
+        if (maxInput) maxInput.value = sensor.maximo;
+    }
+    await saveSensorRanges();
+}
+
 function seedHistory() {
     state.sensors.forEach(s => {
         const values = state.readings.filter(r => r.sensor.id === s.id).slice(0, 18).reverse();
@@ -554,7 +717,56 @@ function seedHistory() {
 }
 
 function normalizeSensorType(type) {
-    return String(type || "").trim().toLowerCase().replaceAll("co₂", "co2");
+    return String(type || "").trim().toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replaceAll("co₂", "co2").replaceAll("no₃", "no3")
+        .replace(/\s+/g, " ");
+}
+
+function canonicalSensorType(type) {
+    const normalized = normalizeSensorType(type);
+    // Compatibilidad con nombres antiguos guardados en sensores ya existentes.
+    if (normalized === "temperatura") return "temperatura del aire";
+    if (normalized === "humedad") return "humedad relativa";
+    return normalized;
+}
+
+function getRangeForSensorType(type) {
+    const canonical = canonicalSensorType(type);
+    const saved = state.ranges.find(r => canonicalSensorType(r.tipo) === canonical);
+    if (saved) return { minimo: Number(saved.minimo), maximo: Number(saved.maximo) };
+    const defaults = RANGE_SENSOR_CATALOG.find(r => canonicalSensorType(r.nombre) === canonical);
+    return defaults ? { minimo: defaults.minimo, maximo: defaults.maximo } : null;
+}
+
+function chartRangeAlert(sensor) {
+    // No marcar como alerta el valor inicial 0 si todavía no se ha recibido una lectura real.
+    if (!sensor?.ultimaLectura) return { className: "", text: "" };
+    const range = getRangeForSensorType(sensor?.tipo);
+    const value = Number(sensor?.valorActual);
+    if (!range || !Number.isFinite(value)) return { className: "", text: "" };
+    if (value > range.maximo) {
+        return { className: "alert-high", text: `Alerta: ${formatValue(sensor)} ${sensor?.unidad || ""} supera el máximo de ${range.maximo}.` };
+    }
+    if (value < range.minimo) {
+        return { className: "alert-low", text: `Alerta: ${formatValue(sensor)} ${sensor?.unidad || ""} está por debajo del mínimo de ${range.minimo}.` };
+    }
+    return { className: "", text: "" };
+}
+
+function applyChartRangeAlert(g) {
+    const card = document.querySelector(`[data-chart-id="${g.id}"]`);
+    if (!card) return;
+    card.classList.remove("alert-high", "alert-low");
+    card.querySelector(".range-alert")?.remove();
+    const alert = chartRangeAlert(g.sensor);
+    if (!alert.className) return;
+    card.classList.add(alert.className);
+    const notice = document.createElement("div");
+    notice.className = "range-alert";
+    notice.textContent = alert.text;
+    const chart = card.querySelector(".chart-wrap");
+    if (chart) card.insertBefore(notice, chart);
 }
 
 function metricFor(type) {
@@ -661,8 +873,10 @@ function renderCharts() {
         return;
     }
 
-    container.innerHTML = visibleCharts.map(g => `
-        <div class="card chart-card">
+    container.innerHTML = visibleCharts.map(g => {
+        const alert = chartRangeAlert(g.sensor);
+        return `
+        <div class="card chart-card ${alert.className}" data-chart-id="${g.id}">
           <div class="chart-head">
             <div class="chart-title">${escapeHtml(g.nombre)}</div>
             <button class="btn btn-danger" onclick="deleteChart(${g.id})">Eliminar</button>
@@ -671,8 +885,10 @@ function renderCharts() {
             ${escapeHtml(g.sensor?.deviceAlias || g.sensor?.deviceId || "Sin dispositivo")} ·
             ${escapeHtml(g.sensor?.tipo || "Sensor")} · ${escapeHtml(g.tipo)}
           </div>
+          ${alert.text ? `<div class="range-alert">${escapeHtml(alert.text)}</div>` : ""}
           <div class="chart-wrap"><canvas id="chart-${g.id}"></canvas></div>
-        </div>`).join("");
+        </div>`;
+    }).join("");
 
     visibleCharts.forEach(g => drawChart(g));
 }
@@ -680,63 +896,212 @@ function renderCharts() {
 function drawChart(g) {
     const canvas = document.getElementById(`chart-${g.id}`);
     if (!canvas) return;
+
     const ctx = canvas.getContext("2d");
     const rect = canvas.getBoundingClientRect();
+
+    if (rect.width <= 0 || rect.height <= 0) return;
+
     const dpr = window.devicePixelRatio || 1;
+
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-    const w = rect.width, h = rect.height;
-    ctx.clearRect(0,0,w,h);
 
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const w = rect.width;
+    const h = rect.height;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Historial de lecturas del sensor.
     const history = state.chartHistory[g.sensor.id] || [];
-    const values = history.length ? history.map(x => Number(x.value)) : [Number(g.sensor.valorActual)];
-    const min = Math.min(...values), max = Math.max(...values);
-    const pad = (max - min || 1) * .15;
-    const lo = min - pad, hi = max + pad;
 
+    const values = (
+        history.length
+            ? history.map(x => Number(x.value))
+            : [Number(g.sensor.valorActual)]
+    ).filter(Number.isFinite);
+
+    if (!values.length) return;
+
+    // Obtener los rangos configurados para este tipo de sensor.
+    const range = getRangeForSensorType(g.sensor.tipo);
+
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+
+    // La escala debe incluir tanto las lecturas como los límites.
+    const domainMin = range
+        ? Math.min(minValue, range.minimo)
+        : minValue;
+
+    const domainMax = range
+        ? Math.max(maxValue, range.maximo)
+        : maxValue;
+
+    const padding = (domainMax - domainMin || 1) * 0.08;
+
+    const lo = domainMin - padding;
+    const hi = domainMax + padding;
+
+    const plotLeft = 45;
+    const plotRight = w - 15;
+    const plotTop = 25;
+    const plotBottom = h - 30;
+
+    const yForValue = value =>
+        plotBottom -
+        ((value - lo) / (hi - lo)) *
+        (plotBottom - plotTop);
+
+    // Cuadrícula del gráfico.
     ctx.strokeStyle = "#d5d9df";
     ctx.lineWidth = 1;
-    for (let i=0;i<5;i++) {
-        const y = 20 + i*(h-45)/4;
-        ctx.beginPath(); ctx.moveTo(45,y); ctx.lineTo(w-15,y); ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (let i = 0; i < 5; i++) {
+        const y = plotTop +
+            i * (plotBottom - plotTop) / 4;
+
+        ctx.beginPath();
+        ctx.moveTo(plotLeft, y);
+        ctx.lineTo(plotRight, y);
+        ctx.stroke();
     }
 
+    // Valores de la escala vertical.
     ctx.fillStyle = "#4b5563";
     ctx.font = "12px Arial";
-    ctx.fillText(hi.toFixed(1), 5, 23);
-    ctx.fillText(lo.toFixed(1), 5, h-25);
 
+    ctx.fillText(hi.toFixed(1), 5, plotTop);
+    ctx.fillText(lo.toFixed(1), 5, plotBottom);
+
+    // Dibujar los datos del sensor.
     if (g.tipo === "BARRAS") {
-        const bw = Math.max(4, (w-70)/values.length - 5);
-        values.forEach((v,i) => {
-            const x = 50 + i*(bw+5);
-            const y = h-30 - ((v-lo)/(hi-lo))*(h-55);
+        const bw = Math.max(
+            4,
+            (w - 70) / values.length - 5
+        );
+
+        values.forEach((v, i) => {
+            const x = 50 + i * (bw + 5);
+            const y = yForValue(v);
+
             ctx.fillStyle = "#08b737";
-            ctx.fillRect(x,y,bw,h-30-y);
+            ctx.fillRect(
+                x,
+                y,
+                bw,
+                plotBottom - y
+            );
         });
     } else {
-        ctx.strokeStyle = "#08b737";
-        ctx.lineWidth = 3;
         ctx.beginPath();
-        values.forEach((v,i) => {
-            const x = 50 + i*((w-70)/Math.max(1,values.length-1));
-            const y = h-30 - ((v-lo)/(hi-lo))*(h-55);
-            if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+
+        values.forEach((v, i) => {
+            const x = 50 +
+                i * ((w - 70) / Math.max(1, values.length - 1));
+            const y = yForValue(v);
+
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
         });
-        ctx.stroke();
+
         if (g.tipo === "AREA") {
-            ctx.lineTo(w-20,h-30);
-            ctx.lineTo(50,h-30);
+            ctx.lineTo(w - 20, plotBottom);
+            ctx.lineTo(50, plotBottom);
             ctx.closePath();
-            ctx.fillStyle = "rgba(8,183,55,.15)";
+
+            ctx.fillStyle = "rgba(8,183,55,0.15)";
             ctx.fill();
         }
+
+        // Línea del historial.
+        ctx.beginPath();
+
+        values.forEach((v, i) => {
+            const x = 50 +
+                i * ((w - 70) / Math.max(1, values.length - 1));
+            const y = yForValue(v);
+
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+
+        ctx.strokeStyle = "#08b737";
+        ctx.lineWidth = 3;
+        ctx.stroke();
     }
 
+    // Dibujar los límites por encima de los datos.
+    function drawLimitLine(value, color, label) {
+        if (!Number.isFinite(Number(value))) return;
+
+        const y = yForValue(Number(value));
+
+        ctx.save();
+
+        // Línea horizontal discontinua.
+        ctx.beginPath();
+        ctx.moveTo(plotLeft, y);
+        ctx.lineTo(plotRight, y);
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([7, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Etiqueta del límite con su valor.
+        const text = `${label}: ${value}`;
+        ctx.font = "bold 11px Arial";
+
+        const textWidth = ctx.measureText(text).width;
+        const labelX = Math.max(
+            plotLeft + 3,
+            plotRight - textWidth - 10
+        );
+
+        const labelY = Math.max(
+            plotTop + 12,
+            Math.min(y - 4, plotBottom - 3)
+        );
+
+        ctx.fillStyle = "rgba(255,255,255,0.92)";
+        ctx.fillRect(
+            labelX - 3,
+            labelY - 11,
+            textWidth + 6,
+            14
+        );
+
+        ctx.fillStyle = color;
+        ctx.fillText(text, labelX, labelY);
+
+        ctx.restore();
+    }
+
+    if (range) {
+        drawLimitLine(range.maximo, "#dc2626", "Máximo");
+        drawLimitLine(range.minimo, "#2563eb", "Mínimo");
+    }
+
+    // Valor actual del sensor.
     ctx.fillStyle = "#111";
     ctx.font = "13px Arial";
-    ctx.fillText(`${g.sensor.tipo}: ${Number(g.sensor.valorActual).toFixed(1)} ${g.sensor.unidad}`, 55, h-7);
+
+    ctx.fillText(
+        `${g.sensor.tipo}: ${Number(g.sensor.valorActual).toFixed(1)} ${g.sensor.unidad || ""}`,
+        55,
+        h - 7
+    );
 }
 
 function findSensorDefinition(typeOrName) {
@@ -1649,6 +2014,7 @@ function updateSensorFromWebSocket(msg) {
             String(sensor.id)
         ) {
             g.sensor = sensor;
+            applyChartRangeAlert(g);
         }
     });
 
@@ -1804,6 +2170,12 @@ window.createPairingCode = createPairingCode;
 window.copyPairingCode = copyPairingCode;
 window.statePairingDismiss = statePairingDismiss;
 window.renderDevices = renderDevices;
+window.deleteDevice = deleteDevice;
+window.loadSettings = loadSettings;
+window.generateDeviceToken = generateDeviceToken;
+window.copyDeviceToken = copyDeviceToken;
+window.saveSensorRanges = saveSensorRanges;
+window.resetDefaultRanges = resetDefaultRanges;
 window.deleteSensor = deleteSensor;
 window.deleteChart = deleteChart;
 window.loadReports = loadReports;

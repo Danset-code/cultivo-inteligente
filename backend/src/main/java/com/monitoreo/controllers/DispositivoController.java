@@ -23,7 +23,12 @@ public class DispositivoController {
         return ResponseEntity.status(201).body(service.crearCodigo(owner));
     }
 
-    /** Endpoint público limitado a canjear un código aleatorio de un solo uso generado por una sesión autenticada. */
+    @DeleteMapping("/{id}") public ResponseEntity<?> eliminar(@PathVariable Long id, @RequestAttribute("currentUser") Usuario owner) {
+        service.eliminar(id, owner);
+        return ResponseEntity.ok(java.util.Map.of("success", true, "message", "Dispositivo y sus datos asociados eliminados correctamente"));
+    }
+
+    /** Endpoint público limitado a vincular mediante token de usuario o código legacy de un solo uso. */
     @PostMapping("/vincular") public ResponseEntity<DispositivoVinculadoResponse> vincular(@Valid @RequestBody VincularDispositivoRequest request) {
         return ResponseEntity.ok(service.vincular(request));
     }

@@ -108,30 +108,47 @@ Un navegador o Postman con sesión puede enviar una lectura asociada a un sensor
 
 Debe incluir el encabezado `Authorization: Bearer <accessToken>`.
 
-## 5. Dispositivos físicos: nombres automáticos
+## 5. Dispositivos físicos: nombres automáticos y token de vinculación
 
-Las rutas de consulta y generación de códigos requieren una sesión de usuario:
+Las rutas de consulta y generación de tokens requieren sesión de usuario. La vinculación es pública, pero solo se autoriza con el token secreto de la cuenta o con un código legacy válido.
 
 | Método | Endpoint | Función |
 |---|---|---|
-| GET | `/api/dispositivos` | Lista los dispositivos de la cuenta |
-| POST | `/api/dispositivos/codigo-vinculacion` | Reserva un alias y genera un código de un solo uso |
-| POST | `/api/dispositivos/vincular` | Canjea el código desde el microcontrolador (ruta pública, autorizada por el código) |
+| GET | `/api/dispositivos` | Lista dispositivos de la cuenta |
+| DELETE | `/api/dispositivos/{id}` | Elimina el dispositivo propio y sus sensores, gráficos e historial asociado |
+| GET | `/api/configuracion/token-dispositivo` | Consulta el token de vinculación de la cuenta actual |
+| POST | `/api/configuracion/token-dispositivo/generar` | Genera o rota un token aleatorio de 256 bits, único en la base de datos |
+| GET | `/api/configuracion/rangos` | Lee rangos configurados para los tipos de sensor del usuario |
+| PUT | `/api/configuracion/rangos` | Guarda los rangos generales por tipo de sensor para ese usuario |
+| POST | `/api/dispositivos/codigo-vinculacion` | Genera un código legacy de un solo uso |
+| POST | `/api/dispositivos/vincular` | Vincula una placa (ruta pública autenticada por secreto) |
 
-El backend asigna nombres visibles (`device1`, `device2`, etc.). El firmware obtiene el `hardwareId` estable por sí mismo; no debe enviar el alias como identidad física.
+El token de cuenta contiene 64 caracteres hexadecimales (256 bits aleatorios). Su valor se mantiene único mediante una restricción `UNIQUE` en la tabla `usuarios`. Solo se comparte con dispositivos que deban darse de alta; no es la clave para enviar todas las lecturas.
 
-Primera vinculación:
-
-`POST /api/dispositivos/vincular`
+Petición inicial recomendada a `POST /api/dispositivos/vincular`:
 
 ```json
 {
   "hardwareId": "IDENTIFICADOR_UNICO_LEIDO_POR_EL_FIRMWARE",
-  "pairingCode": "CODIGO_DE_UN_SOLO_USO"
+  "userToken": "TOKEN_DE_64_CARACTERES_GENERADO_EN_CONFIGURACION"
 }
 ```
 
-La respuesta devuelve `deviceKey`; guárdalo de forma privada en el dispositivo. El código se consume en la primera vinculación.
+Respuesta orientativa:
+
+```json
+{
+  "success": true,
+  "alias": "device1",
+  "hardwareId": "IDENTIFICADOR_UNICO_LEIDO_POR_EL_FIRMWARE",
+  "deviceKey": "CLAVE_PRIVADA_EXCLUSIVA_DE_ESTA_PLACA",
+  "message": "Dispositivo vinculado"
+}
+```
+
+El `userToken` puede utilizarse para vincular varios `hardwareId` distintos. El backend genera para cada dispositivo una `deviceKey` diferente. La placa debe guardar su `deviceKey` de forma persistente y utilizarla en el encabezado `X-Device-Key` para enviar lecturas. No debe enviar correo ni contraseña. Regenerar el token de cuenta invalida el anterior para nuevas vinculaciones, pero no cambia las claves de las placas ya vinculadas. Para revocar una placa existente, elimínala desde Dispositivos; las lecturas posteriores con su clave serán rechazadas.
+
+El flujo anterior con `pairingCode` de un solo uso sigue disponible por compatibilidad.
 
 ## 6. Lecturas enviadas por una placa
 
@@ -158,6 +175,19 @@ Y un cuerpo como:
 Se utiliza la combinación `deviceId + canal` para encontrar el sensor. Una placa puede tener varios canales, incluso de un mismo tipo, conservando el mismo `deviceId` y usando un `canal` distinto. Si un canal aún no está registrado, el backend puede crear su sensor durante la primera lectura cuando se envían `tipo` y `unidad`.
 
 Consulta [`DEVICE_LINKING.md`](DEVICE_LINKING.md) para consejos de obtención del identificador según ESP32, Raspberry Pi y Arduino.
+
+### Rangos por tipo de sensor
+
+`PUT /api/configuracion/rangos` recibe una lista. Para cada tipo se guarda un único par mínimo/máximo por usuario; por eso el límite se aplica a todos los sensores que tengan el mismo campo `tipo`.
+
+```json
+[
+  {"tipo": "Temperatura del aire", "minimo": 20, "maximo": 32},
+  {"tipo": "CO₂", "minimo": 380, "maximo": 520}
+]
+```
+
+La interfaz incluye los 23 tipos definidos en `frontend/src/main/webapp/simulador.html` y propone inicialmente los mismos rangos de ese simulador. Los límites guardados se pueden consultar desde el simulador mediante `GET /api/configuracion/rangos`. En el Dashboard, un valor mayor que el máximo colorea el fondo de la tarjeta en rojo claro; un valor menor que el mínimo lo colorea en azul claro. El color del gráfico en sí no cambia.
 
 ## 7. Reportes y exportación
 

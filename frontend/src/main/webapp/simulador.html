@@ -27,6 +27,8 @@ header h1{margin:0;font-size:22px}header small{color:var(--muted)}
       <div class="field"><label>Contraseña</label><input id="simPassword" type="password" placeholder="Contraseña"></div>
       <div class="toolbar"><button class="primary" id="loginBtn">Iniciar sesión en el simulador</button><span id="loginStatus" class="hint">Debes autenticarte para acceder a los datos de tu cuenta.</span></div>
       <h2>Configuración</h2>
+      <div class="field"><label>Token de vinculación de la cuenta</label><input id="userDeviceToken" type="password" placeholder="Genera el token en Configuración del sistema" autocomplete="off"></div>
+      <div class="toolbar"><button class="secondary" id="loadTokenBtn">Cargar / usar token</button></div><p class="hint">Si pegas aquí un token, pulsa el botón para conservarlo y usarlo. Si el campo está vacío, el simulador intentará consultar el token de la cuenta después de iniciar sesión.</p>
       <div class="field"><label>API del backend</label><input id="apiUrl" value="https://backend-sistemaautenticacionjava-borrar.onrender.com/api"></div>
       <div class="field"><label>WebSocket</label><input id="wsUrl" value="wss://backend-sistemaautenticacionjava-borrar.onrender.com/ws/sensores"></div>
       <div class="row">
@@ -40,7 +42,7 @@ header h1{margin:0;font-size:22px}header small{color:var(--muted)}
       </div>
 
       <h2 style="margin-top:22px">Dispositivo y sensor</h2>
-      <p class="hint">El simulador genera automáticamente un identificador de hardware y lo vincula como device1, device2… No tienes que escribir un Device ID.</p>
+      <p class="hint">El simulador genera automáticamente un identificador de hardware y lo vincula como device1, device2… Usa el token de cuenta para registrar varias placas; cada placa recibe después su propia clave X-Device-Key.</p>
       <div class="toolbar"><button class="secondary" id="pairDeviceBtn">Crear/vincular dispositivo simulado</button></div>
       <div class="field"><label>Dispositivo</label><select id="deviceSelect" required><option value="">Inicia sesión y vincula un dispositivo</option></select></div>
       <div class="field"><label>Nombre del sensor</label><input id="sensorName" placeholder="Ej. Temperatura Invernadero 01"></div>
@@ -77,6 +79,7 @@ let types=[];
 let accessToken=null;
 let devices=[];
 const deviceKeys=new Map();
+let configuredRanges=[];
 
   const SENSOR_CATALOG = [
     // Ambiente
@@ -117,8 +120,19 @@ const ranges = {"temperatura del aire": [20, 32], temperatura: [20, 32], "humeda
 const $=id=>document.getElementById(id);
 function apiBase(){return $('apiUrl').value.replace(/\/$/,'');}
 function log(msg){const t=new Date().toLocaleTimeString('es-CO');$('log').textContent+=`[${t}] ${msg}\n`; $('log').scrollTop=$('log').scrollHeight;}
-function norm(v){return String(v||'').trim().toLowerCase();}
-function rangeFor(type){return ranges[norm(type)] || ranges.default;}
+function norm(v){return String(v||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replaceAll('co₂','co2').replaceAll('no₃','no3').replace(/\s+/g,' ');}
+function canonicalType(v){
+  const value=norm(v);
+  if(value==='temperatura')return 'temperatura del aire';
+  if(value==='humedad')return 'humedad relativa';
+  return value;
+}
+function rangeFor(type){
+  const canonical=canonicalType(type);
+  const saved=configuredRanges.find(r=>canonicalType(r.tipo)===canonical);
+  if(saved&&Number.isFinite(Number(saved.minimo))&&Number.isFinite(Number(saved.maximo)))return [Number(saved.minimo),Number(saved.maximo)];
+  return ranges[norm(type)] || ranges[canonical] || ranges.default;
+}
 function randomValue(type){const [a,b]=rangeFor(type);return Math.round((a+Math.random()*(b-a))*10)/10;}
 function fmtDate(v){if(!v)return '-';return new Date(v).toLocaleString('es-CO');}
 function stateClass(s){return String(s||'').toUpperCase()==='ACTIVO'?'ok':'off';}
@@ -177,6 +191,7 @@ async function simulatorLogin(){
     accessToken=data.accessToken;
     if(!accessToken)throw new Error('El backend no devolvió accessToken.');
     $('loginStatus').textContent=`Sesión activa: ${data.nombre}`;
+    await loadAccountToken(); await loadRanges();
     await loadDevices(); await loadSensors(); connectWs();
     log('Sesión iniciada para '+data.correo);
   }catch(e){$('loginStatus').textContent='No se pudo iniciar sesión: '+e.message;log('ERROR login: '+e.message);}
@@ -190,16 +205,51 @@ async function loadDevices(){
     select.innerHTML=paired.length?paired.map(d=>`<option value="${esc(d.hardwareId)}">${esc(d.alias)}</option>`).join(''):'<option value="">Vincula un dispositivo primero</option>';
   }catch(e){log('ERROR cargando dispositivos: '+e.message);}
 }
+async function loadAccountToken(){
+  const input=$('userDeviceToken');
+  const typedToken=input.value.trim();
+
+  // Si el usuario ya pegó el token desde Configuración, no hagas una petición GET
+  // que pueda sobrescribirlo o fallar porque el backend desplegado sea antiguo.
+  if(typedToken){
+    log('Token introducido manualmente conservado. Se comprobará al vincular el dispositivo.');
+    return;
+  }
+  if(!accessToken){
+    log('Inicia sesión antes de consultar el token guardado de la cuenta. También puedes pegarlo manualmente.');
+    return;
+  }
+  try{
+    const data=await request('/configuracion/token-dispositivo');
+    if(data.token){
+      input.value=data.token;
+      log('Token de vinculación cargado desde la cuenta autenticada.');
+    }else{
+      log('Esta cuenta todavía no tiene token. Genéralo en Configuración del sistema y pégalo aquí.');
+    }
+  }catch(e){
+    // No vaciar el campo ni impedir que se pegue un token generado en la web principal.
+    log('No se pudo consultar el token guardado: '+e.message+'. Si ya generaste el token en la web principal, pégalo en el campo y vuelve a pulsar el botón; luego vincula el dispositivo. Si el error continúa al iniciar sesión con el campo vacío, despliega la versión actualizada del backend.');
+  }
+}
+async function loadRanges(){
+  if(!accessToken)return;
+  try{
+    configuredRanges=await request('/configuracion/rangos');
+    log(`Rangos de usuario cargados: ${configuredRanges.length}.`);
+  }catch(e){log('No se pudieron cargar rangos guardados; se usarán los predeterminados. '+e.message);}
+}
 async function pairSimulatedDevice(){
   if(!accessToken){alert('Inicia sesión primero.');return;}
+  const userToken=$('userDeviceToken').value.trim();
+  if(!userToken){alert('Genera el token de vinculación en el apartado Configuración del sistema y luego pulsa “Cargar token de mi cuenta”.');return;}
   try{
-    const code=await request('/dispositivos/codigo-vinculacion',{method:'POST'});
     const hardwareId='SIM-'+crypto.randomUUID();
-    const linked=await request('/dispositivos/vincular',{method:'POST',skipAuth:true,body:JSON.stringify({hardwareId,pairingCode:code.pairingCode})});
+    const linked=await request('/dispositivos/vincular',{method:'POST',skipAuth:true,body:JSON.stringify({hardwareId,userToken})});
     deviceKeys.set(hardwareId,linked.deviceKey);
     await loadDevices();
     $('deviceSelect').value=hardwareId;
-    log(`Dispositivo emparejado automáticamente como ${linked.alias}; hardwareId generado por el simulador.`);
+    log(`Dispositivo vinculado automáticamente como ${linked.alias}; se generó una clave privada exclusiva para esta placa.`);
   }catch(e){alert('No se pudo vincular el dispositivo simulado: '+e.message);log('ERROR vinculación: '+e.message);}
 }
 async function loadSensors(){
@@ -267,6 +317,7 @@ function connectWs(){
 $('sensorType').addEventListener('change',updateUnit);
 $('loginBtn').addEventListener('click',simulatorLogin);
 $('pairDeviceBtn').addEventListener('click',pairSimulatedDevice);
+$('loadTokenBtn').addEventListener('click',loadAccountToken);
 $('createBtn').addEventListener('click',createSensor);
 $('startBtn').addEventListener('click',startSequence);
 $('stopBtn').addEventListener('click',stopSequence);

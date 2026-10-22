@@ -26,12 +26,13 @@ public class ApiAuthenticationInterceptor implements HandlerInterceptor {
         String path=request.getRequestURI().substring(request.getContextPath().length());
         String method=request.getMethod().toUpperCase();
 
-        // Único endpoint público de dispositivos: canje del código de emparejamiento de un solo uso.
+        // Endpoint público para vincular una placa con un token de cuenta o un código legacy; el secreto se valida en el servicio.
         if ("/api/dispositivos/vincular".equals(path) && "POST".equals(method)) return true;
 
         boolean protectedPath = path.startsWith("/api/sensores") || path.startsWith("/api/graficos")
                 || path.startsWith("/api/reportes") || path.startsWith("/api/auth/usuarios/")
-                || path.startsWith("/api/dispositivos") || path.startsWith("/api/lecturas");
+                || path.startsWith("/api/dispositivos") || path.startsWith("/api/lecturas")
+                || path.startsWith("/api/configuracion");
         if (!protectedPath) return true;
 
         String token = bearer(request.getHeader("Authorization"));

@@ -7,6 +7,10 @@ import com.monitoreo.dto.VincularDispositivoRequest;
 import com.monitoreo.models.Dispositivo;
 import com.monitoreo.models.Usuario;
 import com.monitoreo.repositories.DispositivoRepository;
+import com.monitoreo.repositories.GraficoRepository;
+import com.monitoreo.repositories.LecturaRepository;
+import com.monitoreo.repositories.SensorRepository;
+import com.monitoreo.repositories.UsuarioRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,7 +21,20 @@ import java.util.UUID;
 @Service
 public class DispositivoService {
     private final DispositivoRepository repository;
-    public DispositivoService(DispositivoRepository repository) { this.repository = repository; }
+    private final SensorRepository sensorRepository;
+    private final LecturaRepository lecturaRepository;
+    private final GraficoRepository graficoRepository;
+    private final UsuarioRepository usuarioRepository;
+
+    public DispositivoService(DispositivoRepository repository, SensorRepository sensorRepository,
+                              LecturaRepository lecturaRepository, GraficoRepository graficoRepository,
+                              UsuarioRepository usuarioRepository) {
+        this.repository = repository;
+        this.sensorRepository = sensorRepository;
+        this.lecturaRepository = lecturaRepository;
+        this.graficoRepository = graficoRepository;
+        this.usuarioRepository = usuarioRepository;
+    }
 
     @Transactional
     public CodigoVinculacionResponse crearCodigo(Usuario owner) {
@@ -36,22 +53,58 @@ public class DispositivoService {
     public DispositivoVinculadoResponse vincular(VincularDispositivoRequest request) {
         String hardwareId = request.getHardwareId() == null ? "" : request.getHardwareId().trim();
         String pairingCode = request.getPairingCode() == null ? "" : request.getPairingCode().trim();
-        if (hardwareId.isBlank() || hardwareId.length() > 80 || pairingCode.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hardwareId y pairingCode son obligatorios");
+        String userToken = request.getUserToken() == null ? "" : request.getUserToken().trim();
+        if (hardwareId.isBlank() || hardwareId.length() > 80) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hardwareId es obligatorio y no puede superar 80 caracteres");
+        }
+        if (pairingCode.isBlank() == userToken.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Envíe userToken o pairingCode, pero no ambos");
         }
         if (repository.findByHardwareId(hardwareId).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Este hardwareId ya está vinculado a una cuenta");
         }
-        Dispositivo d = repository.findByCodigoVinculacion(pairingCode).orElseThrow(() ->
+
+        Dispositivo d;
+        if (!userToken.isBlank()) {
+            Usuario owner = usuarioRepository.findByTokenDispositivo(userToken).orElseThrow(() ->
+                    new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token de usuario inválido o regenerado"));
+            d = new Dispositivo();
+            d.setAlias(siguienteAlias(owner));
+            d.setUsuario(owner);
+            d.setApiKey(UUID.randomUUID().toString());
+            d.setHardwareId(hardwareId);
+            d = repository.save(d);
+            return new DispositivoVinculadoResponse(true, d.getAlias(), hardwareId, d.getApiKey(),
+                    "Dispositivo vinculado. Guarde deviceKey en memoria persistente y utilícelo para las lecturas.");
+        }
+
+        // Flujo heredado: código generado para un solo dispositivo.
+        d = repository.findByCodigoVinculacion(pairingCode).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Código de vinculación inválido o ya utilizado"));
         if (d.getHardwareId() != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "El código ya fue utilizado");
         }
         d.setHardwareId(hardwareId);
-        d.setCodigoVinculacion(null); // código de un solo uso
+        d.setCodigoVinculacion(null);
         repository.save(d);
         return new DispositivoVinculadoResponse(true, d.getAlias(), hardwareId, d.getApiKey(),
                 "Dispositivo vinculado. Guarde deviceKey de forma persistente y no lo publique.");
+    }
+
+    @Transactional
+    public void eliminar(Long id, Usuario owner) {
+        Dispositivo dispositivo = repository.findByIdAndUsuario_Id(id, owner.getId()).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Dispositivo no encontrado en tu cuenta"));
+        if (dispositivo.getHardwareId() != null) {
+            List<com.monitoreo.models.Sensor> sensores = sensorRepository
+                    .findAllByDeviceIdAndUsuario_IdOrderByIdAsc(dispositivo.getHardwareId(), owner.getId());
+            for (com.monitoreo.models.Sensor sensor : sensores) {
+                graficoRepository.deleteBySensorId(sensor.getId());
+                lecturaRepository.deleteBySensorId(sensor.getId());
+                sensorRepository.delete(sensor);
+            }
+        }
+        repository.delete(dispositivo);
     }
 
     public List<DispositivoResumen> listar(Usuario owner) {
